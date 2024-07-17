@@ -2,9 +2,6 @@ import torch
 from torch import nn
 
 class build_resnet_block(nn.Module):
-    """
-    a resnet block which includes two general_conv2d
-    """
     def __init__(self, channels, layers=2, do_batch_norm=False):
         super(build_resnet_block,self).__init__()
         self._channels = channels
@@ -21,9 +18,6 @@ class build_resnet_block(nn.Module):
         return input_res + inputs
 
 class upsample_conv2d_and_predict_flow(nn.Module):
-    """
-    an upsample convolution layer which includes a nearest interpolate and a general_conv2d
-    """
     def __init__(self, in_channels, out_channels, ksize=3, do_batch_norm=False):
         super(upsample_conv2d_and_predict_flow, self).__init__()
         self._in_channels = in_channels

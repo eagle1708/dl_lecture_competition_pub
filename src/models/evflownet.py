@@ -7,40 +7,53 @@ _BASE_CHANNELS = 64
 
 class EVFlowNet(nn.Module):
     def __init__(self, args):
-        super(EVFlowNet,self).__init__()
+        super(EVFlowNet, self).__init__()
         self._args = args
 
-        self.encoder1 = general_conv2d(in_channels = 4, out_channels=_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
-        self.encoder2 = general_conv2d(in_channels = _BASE_CHANNELS, out_channels=2*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
-        self.encoder3 = general_conv2d(in_channels = 2*_BASE_CHANNELS, out_channels=4*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
-        self.encoder4 = general_conv2d(in_channels = 4*_BASE_CHANNELS, out_channels=8*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
+        self.encoder1 = general_conv2d(in_channels=8, out_channels=_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)  # 修正: in_channels=8
+        self.encoder2 = general_conv2d(in_channels=_BASE_CHANNELS, out_channels=2*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
+        self.encoder3 = general_conv2d(in_channels=2*_BASE_CHANNELS, out_channels=4*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
+        self.encoder4 = general_conv2d(in_channels=4*_BASE_CHANNELS, out_channels=8*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
+
+        self.dropout = nn.Dropout(p=0.5)  # ドロップアウトレイヤーを追加
 
         self.resnet_block = nn.Sequential(*[build_resnet_block(8*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm) for i in range(2)])
 
         self.decoder1 = upsample_conv2d_and_predict_flow(in_channels=16*_BASE_CHANNELS,
-                        out_channels=4*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
-
+                                                         out_channels=4*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
         self.decoder2 = upsample_conv2d_and_predict_flow(in_channels=8*_BASE_CHANNELS+2,
-                        out_channels=2*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
-
+                                                         out_channels=2*_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
         self.decoder3 = upsample_conv2d_and_predict_flow(in_channels=4*_BASE_CHANNELS+2,
-                        out_channels=_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
-
+                                                         out_channels=_BASE_CHANNELS, do_batch_norm=not self._args.no_batch_norm)
         self.decoder4 = upsample_conv2d_and_predict_flow(in_channels=2*_BASE_CHANNELS+2,
-                        out_channels=int(_BASE_CHANNELS/2), do_batch_norm=not self._args.no_batch_norm)
+                                                         out_channels=int(_BASE_CHANNELS/2), do_batch_norm=not self._args.no_batch_norm)
+
+        # Adding Batch Normalization layers
+        self.batch_norm1 = nn.BatchNorm2d(_BASE_CHANNELS)
+        self.batch_norm2 = nn.BatchNorm2d(2*_BASE_CHANNELS)
+        self.batch_norm3 = nn.BatchNorm2d(4*_BASE_CHANNELS)
+        self.batch_norm4 = nn.BatchNorm2d(8*_BASE_CHANNELS)
 
     def forward(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         # encoder
         skip_connections = {}
         inputs = self.encoder1(inputs)
+        inputs = self.batch_norm1(inputs)  # Batch Normalization
         skip_connections['skip0'] = inputs.clone()
+        inputs = self.dropout(inputs)  # ドロップアウトを追加
         inputs = self.encoder2(inputs)
+        inputs = self.batch_norm2(inputs)  # Batch Normalization
         skip_connections['skip1'] = inputs.clone()
+        inputs = self.dropout(inputs)  # ドロップアウトを追加
         inputs = self.encoder3(inputs)
+        inputs = self.batch_norm3(inputs)  # Batch Normalization
         skip_connections['skip2'] = inputs.clone()
+        inputs = self.dropout(inputs)  # ドロップアウトを追加
         inputs = self.encoder4(inputs)
+        inputs = self.batch_norm4(inputs)  # Batch Normalization
         skip_connections['skip3'] = inputs.clone()
-
+        inputs = self.dropout(inputs)  # ドロップアウトを追加
+        
         # transition
         inputs = self.resnet_block(inputs)
 
@@ -62,35 +75,4 @@ class EVFlowNet(nn.Module):
         inputs, flow = self.decoder4(inputs)
         flow_dict['flow3'] = flow.clone()
 
-        return flow
-        
-
-# if __name__ == "__main__":
-#     from config import configs
-#     import time
-#     from data_loader import EventData
-#     '''
-#     args = configs()
-#     model = EVFlowNet(args).cuda()
-#     input_ = torch.rand(8,4,256,256).cuda()
-#     a = time.time()
-#     output = model(input_)
-#     b = time.time()
-#     print(b-a)
-#     print(output['flow0'].shape, output['flow1'].shape, output['flow2'].shape, output['flow3'].shape)
-#     #print(model.state_dict().keys())
-#     #print(model)
-#     '''
-#     import numpy as np
-#     args = configs()
-#     model = EVFlowNet(args).cuda()
-#     EventDataset = EventData(args.data_path, 'train')
-#     EventDataLoader = torch.utils.data.DataLoader(dataset=EventDataset, batch_size=args.batch_size, shuffle=True)
-#     #model = nn.DataParallel(model)
-#     #model.load_state_dict(torch.load(args.load_path+'/model18'))
-#     for input_, _, _, _ in EventDataLoader:
-#         input_ = input_.cuda()
-#         a = time.time()
-#         (model(input_))
-#         b = time.time()
-#         print(b-a)
+        return [flow_dict['flow0'], flow_dict['flow1'], flow_dict['flow2'], flow_dict['flow3']]  # 修正: リストとして返す
